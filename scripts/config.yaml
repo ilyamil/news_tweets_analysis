@@ -1,0 +1,12 @@
+data_collection:
+  frequency: 60
+  max_tweets_per_user: 19
+  path_template: 'news_headlines_sentiment_index/tweets/{}.csv'
+  updates_path: 'news_headlines_sentiment_index/tweets_data_updates.csv'
+inference:
+  model_path: 'models/logreg_on_tfidf_v1.pickle'
+app:
+  name: 'MyApp'
+  model_path: models/{}.pickle
+  model_name: logreg_on_tfidf
+  model_version: 1
