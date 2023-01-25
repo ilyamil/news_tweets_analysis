@@ -46,11 +46,11 @@ class TextPreprocessor(BaseEstimator, TransformerMixin):
         remove_urls_flg: bool = False,
         remove_mentions_flg: bool = False,
         remove_hashtags_flg: bool = False,
+        remove_numbers_flg: bool = False,
         remove_stopwords_flg: bool = False,
         fix_contractions_flg: bool = False,
         lemmatize_flg: bool = False,
-        to_lowercase: bool = False,
-        remove_numbers: bool = False
+        to_lowercase_flg: bool = False
     ):
         self.remove_urls_flg = remove_urls_flg
         self.remove_mentions_flg = remove_mentions_flg
@@ -58,8 +58,8 @@ class TextPreprocessor(BaseEstimator, TransformerMixin):
         self.remove_stopwords_flg = remove_stopwords_flg
         self.fix_contractions_flg = fix_contractions_flg
         self.lemmatize_flg = lemmatize_flg
-        self.to_lowercase_flg = to_lowercase
-        self.remove_numbers_flg = remove_numbers
+        self.to_lowercase_flg = to_lowercase_flg
+        self.remove_numbers_flg = remove_numbers_flg
 
     @staticmethod
     def remove_urls(doc: str) -> str:

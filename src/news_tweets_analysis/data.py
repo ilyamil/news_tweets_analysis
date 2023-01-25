@@ -44,15 +44,18 @@ def load_rotten_tomatoes():
     return rotten_tomatoes_pdf
 
 
-def load_tweet_eval():
-    tweets = datasets.load_dataset('tweet_eval', 'sentiment')
-    tweets_pdf = (
-        pd.concat([
-            pd.DataFrame(v).assign(split=k)
-            for k, v in tweets.items()
-        ])
-        .reset_index(drop=True)
-    )
+def load_tweet_eval(split: str = None):
+    tweets = datasets.load_dataset('tweet_eval', 'sentiment', split=split)
+    if split:
+        tweets_pdf = pd.DataFrame(tweets)
+    else:
+        tweets_pdf = (
+            pd.concat([
+                pd.DataFrame(v).assign(split=k)
+                for k, v in tweets.items()
+            ])
+            .reset_index(drop=True)
+        )
     return tweets_pdf
 
 

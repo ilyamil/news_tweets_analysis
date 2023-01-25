@@ -1,6 +1,8 @@
 import os
 import mlflow
+import numpy as np
 import pandas as pd
+from typing import List
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
@@ -9,12 +11,14 @@ from sklearn.svm import SVC, LinearSVC
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.model_selection import (
     GridSearchCV,
+    PredefinedSplit,
     learning_curve,
     train_test_split
 )
+from news_tweets_analysis.data import load_tweet_eval
+from news_tweets_analysis.preprocessing import TextPreprocessor
 
 
-CV = 3
 MODELS = [
     'logreg_tfidf',
     'nb_counts',
@@ -40,12 +44,12 @@ def calc_learning_curve(estimator, X, y, scoring=None) -> pd.DataFrame:
     return lc
 
 
-def tune_hyperparams(estimator, param_grid, X, y, desc, scoring):
+def tune_hyperparams(estimator, param_grid, X, y, desc, scoring, cv):
     gs = GridSearchCV(
         estimator, param_grid,
         scoring=scoring,
         n_jobs=-1,
-        cv=CV,
+        cv=cv,
         return_train_score=True,
         verbose=1
     )
@@ -65,13 +69,13 @@ def tune_hyperparams(estimator, param_grid, X, y, desc, scoring):
         os.remove('learning_curve.csv')
 
 
-def tune_and_log(estimator, params, X, y, run_desc, scoring):
+def tune_and_log(estimator, params, X, y, run_desc, scoring, cv):
     with mlflow.start_run(description=run_desc):
         gs = GridSearchCV(
             estimator, params,
             scoring=scoring,
             n_jobs=-1,
-            cv=CV,
+            cv=cv,
             verbose=1
         )
         gs.fit(X, y)
@@ -80,7 +84,7 @@ def tune_and_log(estimator, params, X, y, run_desc, scoring):
         mlflow.log_metric('val_score', gs.best_score_)    
 
 
-def tune_logreg(X, y, scoring):
+def tune_logreg(X, y, scoring, cv):
     desc = 'Logreg + TFIDF'
     estimator = Pipeline([
         ('extractor', TfidfVectorizer()),
@@ -88,14 +92,14 @@ def tune_logreg(X, y, scoring):
     ])
     params = {
         'extractor__ngram_range': [(1, 1), (1, 2)],
-        'exractor__max_features': [1000, 3000, 5000, 10000, None],
+        'extractor__max_features': [1000, 3000, 5000, 10000, None],
         'clf__penalty': ['l1', 'l2', 'elastic'],
         'clf__C': [0.1, 1, 10]
     }
-    tune_and_log(estimator, params, X, y, desc, scoring)
+    tune_and_log(estimator, params, X, y, desc, scoring, cv)
 
 
-def tune_naive_bayes(X, y, scoring):
+def tune_naive_bayes(X, y, scoring, cv):
     desc = 'Naive Bayes + counts'
     estimator = Pipeline([
         ('extractor', CountVectorizer()),
@@ -103,13 +107,13 @@ def tune_naive_bayes(X, y, scoring):
     ])
     params = {
         'extractor__ngram_range': [(1, 1), (1, 2)],
-        'exractor__max_features': [1000, 3000, 5000, 10000],
+        'extractor__max_features': [1000, 3000, 5000, 10000],
         'clf__alpha': [0.1, 1, 10]
     }
-    tune_and_log(estimator, params, X, y, desc, scoring)
+    tune_and_log(estimator, params, X, y, desc, scoring, cv)
 
 
-def tune_svm(X, y, scoring):
+def tune_svm(X, y, scoring, cv):
     desc = 'SVM + TFIDF'
     estimator = Pipeline([
         ('extractor', TfidfVectorizer(ngram_range=(1, 2))),
@@ -132,22 +136,54 @@ def tune_svm(X, y, scoring):
             'clf__C': [0.1, 1, 10]
         }
     ]
-    tune_and_log(estimator, params, X, y, desc, scoring)
+    tune_and_log(estimator, params, X, y, desc, scoring, cv)
 
 
-def tune_model(X, y, model_nm, scoring):
+def tune_individual_model(X, y, model_nm, scoring, cv):
     if model_nm == 'logreg_tfidf':
-        tune_logreg(X, y, scoring)
+        tune_logreg(X, y, scoring, cv)
     elif model_nm == 'nb_counts':
-        tune_naive_bayes(X, y, scoring)
+        tune_naive_bayes(X, y, scoring, cv)
     elif model_nm == 'svm_tfidf':
         if len(X) > SVM_MAX_TRAIN_SIZE:
             X_sample, _, y_sample, _ = train_test_split(
                 X, y, train_size=SVM_MAX_TRAIN_SIZE
             )
-            tune_svm(X_sample, y_sample, scoring)
+            tune_svm(X_sample, y_sample, scoring, cv)
         else:
-            tune_svm(X, y, scoring)
+            tune_svm(X, y, scoring, cv)
+    else:
+        raise ValueError(f'Unsupported model: {model_nm}')
+
+
+def run_gridsearch(model: List[str], scoring: str, **preprocessor_params):
+    print('Loading datasets...')
+    train = load_tweet_eval('train')
+    validation = load_tweet_eval('validation')
+    print('Train and validation datasets have been downloaded')
+
+    print('Preprocessing datasets...')
+    preprocessor = TextPreprocessor(**preprocessor_params)
+    train['text'] = preprocessor.fit_transform(train['text'])
+    validation['text'] = preprocessor.transform(validation['text'])
+    print('Train and validation datasets have been preprocessed')
+
+    X_train, X_val = train['text'], validation['text']
+    y_train, y_val = train['label'], validation['label']
+    X = np.concatenate((X_train, X_val))
+    y = np.concatenate((y_train, y_val))
+    test_fold = np.concatenate(
+        (np.zeros(len(X_train) - 1) - 1,
+        np.ones(len(X_val)))
+    )
+    cv = PredefinedSplit(test_fold)
+
+    print('Tuning hyperparameters...')
+    for m in model:
+        print(f'Tuning hyperparameters of {m}...')
+        tune_individual_model(X, y, m, scoring, cv)
+        with mlflow.last_active_run():
+            mlflow.log_params(preprocessor_params)
 
 
 def evaluate(estimator, X, y):
