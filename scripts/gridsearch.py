@@ -1,16 +1,18 @@
-from cProfile import run
+import boto3
 import os
 import mlflow
 import numpy as np
 from argparse import ArgumentParser
 from pathlib import Path
+from dotenv import load_dotenv
 from news_tweets_analysis.model_selection import MODELS, run_gridsearch
 
+load_dotenv()
 
 AWS_BUCKET = os.getenv('AWS_BUCKET')
-# AWS_REGION = os.getenv('AWS_REGION')
-# AWS_ACCESS_KEY = os.getenv('AWS_KEY')
-# AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_KEY')
+AWS_REGION = os.getenv('AWS_REGION')
+AWS_ACCESS_KEY = os.getenv('AWS_KEY')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_KEY')
 # set hyperparams for cross-validation
 RANDOM_STATE = 1
 SCORING = 'f1_macro'
@@ -18,7 +20,6 @@ SCORING = 'f1_macro'
 ROOT = Path(__file__).resolve().parent.parent.as_posix()
 TRACKING_URI = f'file://{ROOT}/mlruns'
 ARTIFACT_LOCATION = f's3://{AWS_BUCKET}/news_tweets_analysis/mlflow_artifacts'
-
 
 argparser = ArgumentParser('Model hyperarameter tuning on grid')
 argparser.add_argument(

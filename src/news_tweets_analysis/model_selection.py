@@ -79,8 +79,9 @@ def tune_and_log(estimator, params, X, y, run_desc, scoring, cv):
             verbose=1
         )
         gs.fit(X, y)
-        best_estimator = gs.best_estimator_
-        mlflow.sklearn.log_model(best_estimator, 'estimator')
+        # best_estimator = gs.best_estimator_
+        # mlflow.sklearn.log_model(best_estimator, 'estimator')
+        mlflow.log_params(gs.best_params_)
         mlflow.log_metric('val_score', gs.best_score_)    
 
 
@@ -93,7 +94,6 @@ def tune_logreg(X, y, scoring, cv):
     params = {
         'extractor__ngram_range': [(1, 1), (1, 2)],
         'extractor__max_features': [1000, 3000, 5000, 10000, None],
-        'clf__penalty': ['l1', 'l2', 'elastic'],
         'clf__C': [0.1, 1, 10]
     }
     tune_and_log(estimator, params, X, y, desc, scoring, cv)
@@ -182,7 +182,8 @@ def run_gridsearch(model: List[str], scoring: str, **preprocessor_params):
     for m in model:
         print(f'Tuning hyperparameters of {m}...')
         tune_individual_model(X, y, m, scoring, cv)
-        with mlflow.last_active_run():
+        last_run = mlflow.last_active_run()
+        with mlflow.start_run(run_id=last_run.info.run_id):
             mlflow.log_params(preprocessor_params)
 
 
