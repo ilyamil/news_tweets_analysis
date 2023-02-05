@@ -33,6 +33,6 @@
         ```
         python scripts/download_model.py \
             --model cardiffnlp/twitter-roberta-base-sentiment-latest \
-            --folder ./models
+            --folder ./models/twitter-roberta-base-sentiment
         ```
     2. 
