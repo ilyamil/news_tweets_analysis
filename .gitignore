@@ -9,6 +9,8 @@ models/
 
 data/
 
+.DS_Store
+
 notebooks/
 
 # C extensions
