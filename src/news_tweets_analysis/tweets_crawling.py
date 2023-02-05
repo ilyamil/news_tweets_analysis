@@ -1,62 +1,12 @@
 import tweepy
 import pandas as pd
-import datasets
-from datetime import datetime
 from typing import List
+from datetime import datetime
 from news_tweets_analysis.utils import (
     write_df_to_s3,
     read_df_from_s3,
     check_file
 )
-
-
-def load_glue():
-    glue = datasets.load_dataset('glue', 'sst2')
-    glue_pdf = (
-        pd.concat([
-            pd.DataFrame(v).assign(split=k)
-            for k, v in glue.items()
-        ])
-        .reset_index(drop=True)
-        .rename(columns={
-            'sentence': 'text',
-            'label': 'positive'
-        })
-        .drop(['idx'], axis=1)
-    )
-    glue_pdf['positive'] = glue_pdf['positive'].replace({-1: 0})
-    return glue_pdf
-
-
-def load_rotten_tomatoes():
-    rotten_tomatoes = datasets.load_dataset('rotten_tomatoes')
-    rotten_tomatoes_pdf = (
-        pd.concat([
-            pd.DataFrame(v).assign(split=k)
-            for k, v in rotten_tomatoes.items()
-        ])
-        .reset_index(drop=True)
-        .rename(columns={
-            'sentence': 'text',
-            'label': 'positive'
-        })     
-    )
-    return rotten_tomatoes_pdf
-
-
-def load_tweet_eval(split: str = None):
-    tweets = datasets.load_dataset('tweet_eval', 'sentiment', split=split)
-    if split:
-        tweets_pdf = pd.DataFrame(tweets)
-    else:
-        tweets_pdf = (
-            pd.concat([
-                pd.DataFrame(v).assign(split=k)
-                for k, v in tweets.items()
-            ])
-            .reset_index(drop=True)
-        )
-    return tweets_pdf
 
 
 def load_new_tweets(

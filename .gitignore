@@ -5,6 +5,12 @@ __pycache__/
 
 mlruns/
 
+models/
+
+data/
+
+notebooks/
+
 # C extensions
 *.so
 

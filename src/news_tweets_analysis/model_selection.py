@@ -1,59 +1,91 @@
 import os
+import time
+from tracemalloc import start
 import mlflow
 import numpy as np
 import pandas as pd
-from typing import List
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import SVC, LinearSVC
+from sklearn.svm import LinearSVC
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.model_selection import (
     GridSearchCV,
     PredefinedSplit,
-    learning_curve,
-    train_test_split
+    learning_curve
 )
-from news_tweets_analysis.data import load_tweet_eval
 from news_tweets_analysis.preprocessing import TextPreprocessor
+from news_tweets_analysis.feature_extraction import (
+    AverageWordVectors,
+    WeightedAverageWordVectors
+)
 
 
-MODELS_SETTINGS = {
-    'logreg_tfidf': {
-        'description': 'Logreg + TFIDF',
-        'pipeline': Pipeline([
-            ('extractor', TfidfVectorizer()),
-            ('clf', LogisticRegression(max_iter=1000))
-        ]),
-        'param_grid': {
-            'extractor__ngram_range': [(1, 1), (1, 2)],
-            'extractor__max_features': [1000, 3000, 5000, 10000, None],
-            'clf__C': [0.1, 1, 10]
-        }
+SCORING = 'f1_macro'
+WV_MODEL_NAME = 'glove-wiki-gigaword-300'
+DEFAULT_PIPELINE = Pipeline([
+    ('extractor', TfidfVectorizer()),
+    ('clf', LogisticRegression())
+])
+EXPERIMENT_SETTINGS = {
+    'Classic Model + TFIDF': {
+        'preprocessor': TextPreprocessor(
+            remove_urls_flg=True,
+            remove_hashtags_flg=True,
+            remove_mentions_flg=True,
+            remove_numbers_flg=True,
+            fix_contractions_flg=True,
+            remove_stopwords_flg=True,
+            lemmatize_flg=True,
+            to_lowercase_flg=True
+        ),
+        'param_grid': [
+            {
+                'extractor': [TfidfVectorizer()],
+                'clf': [LogisticRegression()],
+                'extractor__ngram_range': [(1, 1), (1, 2)],
+                'extractor__max_features': [1000, 3000, 5000, 10000, None],
+                'clf__C': [0.1, 1, 10],
+                'clf__max_iter': [1000]
+            },
+            {
+                'extractor': [CountVectorizer()],
+                'clf': [MultinomialNB()],
+                'extractor__ngram_range': [(1, 1), (1, 2)],
+                'extractor__max_features': [1000, 3000, 5000, 10000, None],
+                'clf__alpha': [0.1, 1, 10]
+            },
+            {
+                'extractor': [TfidfVectorizer()],
+                'clf': [LinearSVC()],
+                'extractor__ngram_range': [(1, 1), (1, 2)],
+                'extractor__max_features': [1000, 3000, 5000, 10000, None],
+                'clf__C': [0.1, 1, 10]
+            }
+        ]
     },
-    'nb_counts': {
-        'description': 'Naive Bayes + counts',
-        'pipeline': Pipeline([
-            ('extractor', CountVectorizer()),
-            ('clf', MultinomialNB())
-        ]),
+    'Classic Model + Word Vectors': {
+        'preprocessor': TextPreprocessor(
+            remove_urls_flg=True,
+            remove_hashtags_flg=True,
+            remove_mentions_flg=True,
+            remove_numbers_flg=True,
+            fix_contractions_flg=True,
+            to_lowercase_flg=True,
+            remove_stopwords_flg=False,
+            lemmatize_flg=False
+        ),
         'param_grid': {
-            'extractor__ngram_range': [(1, 1), (1, 2)],
-            'extractor__max_features': [1000, 3000, 5000, 10000, None],
-            'clf__alpha': [0.1, 1, 10]
-        }
-    },
-    'svm_tfidf': {
-        'description': 'SVM + TFIDF',
-        'pipeline': Pipeline([
-            ('extractor', TfidfVectorizer()),
-            ('clf', LinearSVC())
-        ]),
-        'param_grid': {
-            'extractor__ngram_range': [(1, 1), (1, 2)],
-            'extractor__max_features': [1000, 3000, 5000, 10000, None],
-            'clf__C': [0.1, 1, 10]
+            'extractor': [
+                AverageWordVectors(WV_MODEL_NAME),
+                WeightedAverageWordVectors(WV_MODEL_NAME)
+            ],
+            'clf': [
+                LogisticRegression(max_iter=1_000),
+                MultinomialNB(),
+                LinearSVC()
+            ]         
         }
     }
 }
@@ -76,22 +108,19 @@ def calc_learning_curve(estimator, X, y, scoring=None) -> pd.DataFrame:
     return lc
 
 
-def run_gridsearch(model: List[str], scoring: str, **preprocessor_params):
-    print('Loading datasets...')
-    train = load_tweet_eval('train')
-    validation = load_tweet_eval('validation')
-    print('Train and validation datasets have been downloaded')
+def run_gridsearch(setting: str, dataset_path: str):
+    dataset = pd.read_parquet(dataset_path)
+    train = dataset[dataset['split'] == 'train']
+    validation = dataset[dataset['split'] == 'validation']
+    test = dataset[dataset['split'] == 'test']
+    print('Reading datasets...')
 
-    print('Preprocessing datasets...')
-    # preprocess tweets first, because it is a time consuming task
-    # then we add this as a first step in pipeline
-    preprocessor = TextPreprocessor(**preprocessor_params)
-    train['text'] = preprocessor.fit_transform(train['text'])
-    validation['text'] = preprocessor.transform(validation['text'])
-    print('Train and validation datasets have been preprocessed')
+    preprocessor = EXPERIMENT_SETTINGS[setting]['preprocessor']
+    param_grid = EXPERIMENT_SETTINGS[setting]['param_grid']
 
-    X_train, X_val = train['text'], validation['text']
-    y_train, y_val = train['label'], validation['label']
+    print('Preparing train, validation and tests datasets...')
+    X_train, X_val, X_test = train['text'], validation['text'], test['text']
+    y_train, y_val, y_test = train['label'], validation['label'], test['label']
     X = np.concatenate((X_train, X_val))
     y = np.concatenate((y_train, y_val))
     test_fold = np.concatenate(
@@ -100,41 +129,33 @@ def run_gridsearch(model: List[str], scoring: str, **preprocessor_params):
     )
     cv = PredefinedSplit(test_fold)
 
-    print('Tuning hyperparameters...')
-    for m in model:
-        settings = MODELS_SETTINGS[m]
-        description = settings['description']
-        model = settings['pipeline']
-        params = settings['param_grid']
-        with mlflow.start_run(description=description):
-            print(f'Tuning hyperparameters of {description}...')
-            gs = GridSearchCV(
-                model, params,
-                scoring=scoring,
-                n_jobs=-1,
-                cv=cv,
-                verbose=1
-            )
-            gs.fit(X, y)
+    with mlflow.start_run():
+        mlflow.set_tag('experiment_setting', setting)
 
-            print('Training best estimator...')
-            best_model = gs.best_estimator_
-            best_model.steps.insert(0, ['transformer', preprocessor])
-            best_model.fit(X_train, y_train)
-  
-            print('Logging best estimator...')
-            mlflow.sklearn.log_model(best_model)
-            mlflow.log_metric('val_score', gs.best_score_)
+        print('Tuning hyperparameters...')
+        gs = GridSearchCV(
+            DEFAULT_PIPELINE,
+            param_grid,
+            scoring=SCORING,
+            n_jobs=1,
+            cv=cv,
+            verbose=1
+        )
+        gs.fit(X, y)
 
+        print('Training best estimator...')
+        best_model = gs.best_estimator_
+        best_params = gs.best_params_
+        best_model.steps.insert(0, ['preprocessor', preprocessor])
+        best_model.fit(X, y)
 
-def evaluate(estimator, X, y):
-        # best_estimator.fit(X_train, y_train)
-        # pred = best_estimator.predict(X_test)
-        # test_score = f1_score(y_test, pred, average='macro')
-        # mlflow.log_metric('f1_macro', test_score)
+        start_time = time.time()
+        y_pred = best_model.predict(X_test)
+        test_time = time.time() - start_time
+        test_score = f1_score(y_test, y_pred, average='macro')
 
-        # X = pd.concat([X_train, X_test]).reset_index()
-        # y = pd.concat([X_test, y_test]).reset_index()
-        # best_estimator.fit(X, y)
-        # mlflow.sklearn.log_model(best_estimator, 'model')
-    pass
+        print('Logging artifacts...')
+        mlflow.log_params(best_params)
+        mlflow.log_metric('val_score', gs.best_score_)
+        mlflow.log_metric('test_score', test_score)
+        mlflow.log_metric('test_time', test_time)
